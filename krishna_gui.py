@@ -47,7 +47,7 @@ class KrishnaDesktopApp:
         self.hud_frame = tk.Frame(self.root, bg="#0a0e1a", highlightbackground="#ffd700", highlightthickness=1)
         self.hud_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=12)
 
-        self.lbl_title = tk.Label(self.hud_frame, text="✨ BAL KRISHNA JANMASTMI • 21-STAGE REVEAL",
+        self.lbl_title = tk.Label(self.hud_frame, text="✨ BAL KRISHNA JANMASHTAMI • 21-STAGE REVEAL",
                                   font=("Segoe UI", 12, "bold"), fg="#ffd700", bg="#0a0e1a")
         self.lbl_title.pack(side=tk.LEFT, padx=16, pady=8)
 
