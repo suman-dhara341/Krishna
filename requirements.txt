@@ -1,0 +1,10 @@
+# Bal Krishna Janmashtami Dot-Art Dependencies
+# 
+# ZERO external dependencies required!
+# All components (Web Launcher, Desktop Tkinter GUI, and Terminal ANSI Dot-Art)
+# run entirely on the Python 3.8+ Standard Library.
+#
+# Simply run:
+#   python app.py                (Web Experience Launcher)
+#   python krishna_gui.py        (Desktop Tkinter App)
+#   python krishna_terminal_art.py (ANSI 24-bit TrueColor Terminal Art)

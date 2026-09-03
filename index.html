@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Happy Krishna Janmashtami • Divine Full-Screen Experience</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: #000000;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* Ambient Celestial Aurora */
+    .bg-aurora {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 38%, rgba(15, 30, 70, 0.5) 0%, rgba(3, 5, 10, 0.95) 75%, #000 100%);
+      z-index: 1;
+    }
+
+    #canvas-container {
+      position: relative;
+      z-index: 2;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      filter: drop-shadow(0 0 35px rgba(80, 200, 255, 0.18)) drop-shadow(0 0 50px rgba(255, 215, 0, 0.12));
+    }
+
+    /* Only Toggle Fullscreen Symbol */
+    .fullscreen-btn {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 10;
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: rgba(10, 14, 26, 0.65);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 215, 0, 0.35);
+      color: #ffd700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 20px;
+      opacity: 0.35;
+      transition: all 0.25s ease;
+    }
+
+    .fullscreen-btn:hover {
+      opacity: 1;
+      border-color: #ffd700;
+      box-shadow: 0 0 18px rgba(255, 215, 0, 0.45);
+      transform: scale(1.08);
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-aurora"></div>
+
+  <!-- Pure Full-Screen Canvas Display -->
+  <div id="canvas-container">
+    <canvas id="krishnaCanvas"></canvas>
+  </div>
+
+  <!-- Only Toggle Fullscreen Symbol -->
+  <button class="fullscreen-btn" id="fullscreenBtn" title="Toggle Fullscreen">⛶</button>
+
+  <script src="krishna_data.js"></script>
+  <script>
+    const canvas = document.getElementById('krishnaCanvas');
+    const ctx = canvas.getContext('2d');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    const dots = KRISHNA_DATA.dots;
+    const totalDots = dots.length;
+    const baseWidth = KRISHNA_DATA.width;
+    const baseHeight = KRISHNA_DATA.height;
+
+    // Execution States
+    const STATE_START_BLACK = 'START_BLACK';         // 1. Black screen (1.0s)
+    const STATE_DRAWING     = 'DRAWING';             // 2..12 Sequential progressive dots
+    const STATE_HOLD_2S     = 'HOLD_2S';             // Hold final image for 2 seconds
+    const STATE_FLOWER_RAIN = 'FLOWER_RAIN';         // 13. Flower rain effect (~10s)
+    const STATE_FINAL_HOLD  = 'FINAL_HOLD';          // After flower rain: Hold frame permanently, no loop, no repeat, END
+
+    let currentState = STATE_START_BLACK;
+    let stateTimer = 0;
+
+    let currentIndex = 0;
+    let isPlaying = true;
+    let playbackSpeed = 1.0;
+    const baseDotsPerFrame = 6;
+
+    // Cache canvas for completed artwork
+    let cachedKrishnaCanvas = null;
+
+    // --- CELESTIAL STARDUST PARTICLES ---
+    let stars = [];
+    for (let i = 0; i < 75; i++) {
+      stars.push({
+        x: Math.random(),
+        y: Math.random(),
+        size: Math.random() * 1.6 + 0.4,
+        alpha: Math.random() * 0.7 + 0.3,
+        speed: Math.random() * 0.0003 + 0.0001,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    // --- INTERACTIVE MOUSE SPARKLES ---
+    let sparkles = [];
+    window.addEventListener('mousemove', (e) => {
+      if (Math.random() < 0.45) {
+        sparkles.push({
+          x: e.clientX,
+          y: e.clientY,
+          vx: (Math.random() - 0.5) * 2,
+          vy: (Math.random() - 0.5) * 2 - 1,
+          size: Math.random() * 3 + 1,
+          alpha: 1.0,
+          color: Math.random() > 0.5 ? '#ffd700' : '#50c8ff'
+        });
+      }
+    });
+
+    // --- PROCEDURAL FLOWER SPRITES ---
+    const FLOWER_PALETTES = [
+      { name: 'magenta', center: '#ffd700', primary: '#ff1493', secondary: '#ff69b4', core: '#ffeef8', shadow: 'rgba(255, 20, 147, 0.85)' },
+      { name: 'violet',  center: '#00f5d4', primary: '#9d4edd', secondary: '#c77dff', core: '#e0aaff', shadow: 'rgba(157, 78, 221, 0.85)' },
+      { name: 'gold',    center: '#ffffff', primary: '#ff9e00', secondary: '#ffb703', core: '#fff2b2', shadow: 'rgba(255, 158, 0, 0.85)' },
+      { name: 'cyan',    center: '#ffd700', primary: '#00b4d8', secondary: '#48cae4', core: '#caf0f8', shadow: 'rgba(0, 180, 216, 0.85)' },
+      { name: 'coral',   center: '#ffe066', primary: '#ff3366', secondary: '#ff758f', core: '#ffccd5', shadow: 'rgba(255, 51, 102, 0.85)' }
+    ];
+
+    const flowerSprites = [];
+
+    function generateFlowerSprites() {
+      const spriteSize = 96;
+      const center = spriteSize / 2;
+
+      FLOWER_PALETTES.forEach((palette) => {
+        // 8-Petal Mandala
+        {
+          const c = document.createElement('canvas');
+          c.width = spriteSize;
+          c.height = spriteSize;
+          const sCtx = c.getContext('2d');
+          drawGlowDotOn(sCtx, center, center, 3.8, palette.center, 'rgba(255, 215, 0, 0.9)');
+          for (let p = 0; p < 8; p++) {
+            const angle = (p * Math.PI * 2) / 8;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const normX = -sin;
+            const normY = cos;
+            drawGlowDotOn(sCtx, center + cos * 10, center + sin * 10, 2.8, palette.core, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 16 + normX * 4, center + sin * 16 + normY * 4, 2.5, palette.secondary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 16 - normX * 4, center + sin * 16 - normY * 4, 2.5, palette.secondary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 18, center + sin * 18, 2.8, palette.primary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 25, center + sin * 25, 2.3, palette.primary, palette.shadow);
+          }
+          flowerSprites.push({ type: 'mandala8', palette, canvas: c, radius: 28 });
+        }
+
+        // 6-Petal Star
+        {
+          const c = document.createElement('canvas');
+          c.width = spriteSize;
+          c.height = spriteSize;
+          const sCtx = c.getContext('2d');
+          drawGlowDotOn(sCtx, center, center, 3.2, palette.center, 'rgba(255, 215, 0, 0.8)');
+          for (let p = 0; p < 6; p++) {
+            const angle = (p * Math.PI * 2) / 6;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const normX = -sin;
+            const normY = cos;
+            drawGlowDotOn(sCtx, center + cos * 9, center + sin * 9, 2.5, palette.core, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 15 + normX * 3, center + sin * 15 + normY * 3, 2.2, palette.secondary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 15 - normX * 3, center + sin * 15 - normY * 3, 2.2, palette.secondary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 21, center + sin * 21, 2.0, palette.primary, palette.shadow);
+          }
+          flowerSprites.push({ type: 'star6', palette, canvas: c, radius: 23 });
+        }
+
+        // 5-Petal Blossom
+        {
+          const c = document.createElement('canvas');
+          c.width = spriteSize;
+          c.height = spriteSize;
+          const sCtx = c.getContext('2d');
+          drawGlowDotOn(sCtx, center, center, 2.8, palette.center, 'rgba(255, 215, 0, 0.8)');
+          for (let p = 0; p < 5; p++) {
+            const angle = (p * Math.PI * 2) / 5;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            drawGlowDotOn(sCtx, center + cos * 8, center + sin * 8, 2.4, palette.secondary, palette.shadow);
+            drawGlowDotOn(sCtx, center + cos * 15, center + sin * 15, 2.0, palette.primary, palette.shadow);
+          }
+          flowerSprites.push({ type: 'blossom5', palette, canvas: c, radius: 18 });
+        }
+
+        // Single Petal
+        {
+          const c = document.createElement('canvas');
+          c.width = 48;
+          c.height = 48;
+          const sCtx = c.getContext('2d');
+          const mid = 24;
+          drawGlowDotOn(sCtx, mid - 6, mid - 6, 2.0, palette.core, palette.shadow);
+          drawGlowDotOn(sCtx, mid, mid - 2, 2.6, palette.secondary, palette.shadow);
+          drawGlowDotOn(sCtx, mid + 5, mid + 4, 2.2, palette.primary, palette.shadow);
+          drawGlowDotOn(sCtx, mid + 9, mid + 10, 1.6, palette.primary, palette.shadow);
+          flowerSprites.push({ type: 'petal', palette, canvas: c, radius: 14 });
+        }
+      });
+    }
+
+    function drawGlowDotOn(tCtx, x, y, radius, colorHex, shadowHex) {
+      tCtx.save();
+      tCtx.shadowColor = shadowHex || colorHex;
+      tCtx.shadowBlur = 8;
+      const grad = tCtx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, radius * 0.1, x, y, radius);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.5, colorHex);
+      grad.addColorStop(1, colorHex);
+      tCtx.fillStyle = grad;
+      tCtx.beginPath();
+      tCtx.arc(x, y, radius, 0, Math.PI * 2);
+      tCtx.fill();
+      tCtx.restore();
+    }
+
+    generateFlowerSprites();
+
+    // --- FAIRY LIGHT CURTAINS (JHŪMAR) ---
+    const HANGING_STRANDS = [
+      { x: 30,  length: 310, color: '#50c8ff', speed: 1.2 },
+      { x: 60,  length: 490, color: '#ffd700', speed: 1.5 },
+      { x: 95,  length: 370, color: '#c77dff', speed: 1.0 },
+      { x: 130, length: 560, color: '#50c8ff', speed: 1.8 },
+      { x: 165, length: 320, color: '#ffd700', speed: 1.1 },
+      { x: 205, length: 440, color: '#ff69b4', speed: 1.4 },
+      { x: 250, length: 260, color: '#50c8ff', speed: 1.6 },
+      { x: 295, length: 180, color: '#ffd700', speed: 1.3 },
+      { x: 735, length: 190, color: '#ffd700', speed: 1.4 },
+      { x: 775, length: 270, color: '#50c8ff', speed: 1.2 },
+      { x: 815, length: 460, color: '#c77dff', speed: 1.5 },
+      { x: 855, length: 340, color: '#ffd700', speed: 1.1 },
+      { x: 895, length: 550, color: '#ff69b4', speed: 1.7 },
+      { x: 935, length: 420, color: '#50c8ff', speed: 1.3 },
+      { x: 965, length: 510, color: '#ffd700', speed: 1.6 },
+      { x: 995, length: 330, color: '#c77dff', speed: 1.2 }
+    ];
+
+    // --- FALLING FLOWERS & WATER PARTICLES ---
+    let fallingFlowers = [];
+    let settledFlowers = [];
+    let waterRipples = [];
+    const MAX_FLOWERS = 50;
+    const WATER_LEVEL = 745;
+
+    function spawnFlower(startY = null) {
+      const spriteItem = flowerSprites[Math.floor(Math.random() * flowerSprites.length)];
+      const isBig = spriteItem.type === 'mandala8';
+      const scaleBase = isBig ? (Math.random() * 0.4 + 0.7) : (Math.random() * 0.5 + 0.6);
+
+      const x = Math.random() * (baseWidth + 100) - 50;
+      const y = startY !== null ? startY : (Math.random() * -180 - 20);
+
+      return {
+        sprite: spriteItem.canvas,
+        type: spriteItem.type,
+        color: spriteItem.palette.primary,
+        x: x,
+        y: y,
+        baseX: x,
+        swayAmp: Math.random() * 35 + 15,
+        swaySpeed: Math.random() * 0.03 + 0.015,
+        swayAngle: Math.random() * Math.PI * 2,
+        speedY: (Math.random() * 1.2 + 0.8) * (isBig ? 0.9 : 1.15),
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.025,
+        scale: scaleBase,
+        alpha: Math.random() * 0.3 + 0.7,
+        isFloating: false,
+        floatY: 0
+      };
+    }
+
+    function initFlowerPool() {
+      fallingFlowers = [];
+      settledFlowers = [];
+      waterRipples = [];
+      for (let i = 0; i < MAX_FLOWERS; i++) {
+        fallingFlowers.push(spawnFlower(Math.random() * (baseHeight - 100) - 50));
+      }
+    }
+    initFlowerPool();
+
+    function spawnFlowerBurst(cx, cy, count = 7) {
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+        const dist = Math.random() * 60 + 20;
+        const f = spawnFlower(cy + Math.sin(angle) * dist);
+        f.x = cx + Math.cos(angle) * dist;
+        f.baseX = f.x;
+        f.speedY = Math.random() * 1.2 + 0.6;
+        fallingFlowers.push(f);
+      }
+      if (cy >= WATER_LEVEL - 50) {
+        waterRipples.push({
+          x: cx,
+          y: Math.max(WATER_LEVEL + 5, cy),
+          radius: 2,
+          maxRadius: 50 + Math.random() * 30,
+          alpha: 0.9,
+          color: '#50c8ff'
+        });
+      }
+    }
+
+    // --- CANVAS RESIZING ---
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      const padding = 16;
+      const maxW = w - padding * 2;
+      const maxH = h - padding * 2;
+      const aspect = baseWidth / baseHeight;
+
+      let renderW = maxW;
+      let renderH = renderW / aspect;
+
+      if (renderH > maxH) {
+        renderH = maxH;
+        renderW = renderH * aspect;
+      }
+
+      canvas.width = renderW * dpr;
+      canvas.height = renderH * dpr;
+      canvas.style.width = `${renderW}px`;
+      canvas.style.height = `${renderH}px`;
+
+      ctx.resetTransform();
+      ctx.scale(dpr * (renderW / baseWidth), dpr * (renderH / baseHeight));
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- RENDER COMPLETED KRISHNA TO OFFSCREEN CANVAS ---
+    function cacheCompletedKrishna() {
+      if (cachedKrishnaCanvas) return;
+      cachedKrishnaCanvas = document.createElement('canvas');
+      cachedKrishnaCanvas.width = baseWidth;
+      cachedKrishnaCanvas.height = baseHeight;
+      const cCtx = cachedKrishnaCanvas.getContext('2d');
+
+      for (let i = 0; i < totalDots; i++) {
+        drawDotToContext(cCtx, dots[i]);
+      }
+    }
+
+    function drawDotToContext(targetCtx, dot, scaleMult = 1.0) {
+      const { x, y, r, g, b } = dot;
+      const baseRadius = 2.4 * scaleMult;
+
+      targetCtx.save();
+      targetCtx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.7)`;
+      targetCtx.shadowBlur = 8 * scaleMult;
+
+      const grad = targetCtx.createRadialGradient(
+        x - baseRadius * 0.3, y - baseRadius * 0.3, baseRadius * 0.1,
+        x, y, baseRadius
+      );
+      grad.addColorStop(0, `rgb(${Math.min(255, r + 70)}, ${Math.min(255, g + 70)}, ${Math.min(255, b + 70)})`);
+      grad.addColorStop(0.6, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(1, `rgba(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)}, 0.95)`);
+
+      targetCtx.fillStyle = grad;
+      targetCtx.beginPath();
+      targetCtx.arc(x, y, baseRadius, 0, Math.PI * 2);
+      targetCtx.fill();
+      targetCtx.restore();
+    }
+
+    function drawDot(dot, scaleMult = 1.0) {
+      drawDotToContext(ctx, dot, scaleMult);
+    }
+
+    // --- WEB AUDIO API (DEVOTIONAL SOUNDTRACK & CHIMES) ---
+    let audioCtx = null;
+    let isMusicPlaying = false;
+    let synthTimer = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function playCelebrationChime() {
+      if (!audioCtx || !isMusicPlaying) return;
+      const t = audioCtx.currentTime;
+      const freqs = [523.25, 659.25, 783.99, 1046.50];
+      freqs.forEach((freq, idx) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t + idx * 0.12);
+        gain.gain.setValueAtTime(0, t + idx * 0.12);
+        gain.gain.linearRampToValueAtTime(0.12, t + idx * 0.12 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + idx * 0.12 + 3.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t + idx * 0.12);
+        osc.stop(t + idx * 0.12 + 3.6);
+      });
+    }
+
+    const fluteNotes = [261.63, 293.66, 329.63, 369.99, 392.00, 440.00, 493.88, 523.25, 587.33, 659.25];
+
+    function playFluteNote(freq, duration = 3.5) {
+      if (!audioCtx || !isMusicPlaying) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, audioCtx.currentTime);
+
+      gain.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime + 0.6);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+
+      const lfo = audioCtx.createOscillator();
+      const lfoGain = audioCtx.createGain();
+      lfo.frequency.value = 5.5;
+      lfoGain.gain.value = freq * 0.015;
+      lfo.connect(osc.frequency);
+      lfo.start();
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+      lfo.stop(audioCtx.currentTime + duration);
+    }
+
+    let droneOsc1, droneOsc2, droneGain;
+    function startDrone() {
+      droneOsc1 = audioCtx.createOscillator();
+      droneOsc2 = audioCtx.createOscillator();
+      droneGain = audioCtx.createGain();
+      droneOsc1.frequency.value = 130.81;
+      droneOsc2.frequency.value = 196.00;
+      droneGain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+      droneOsc1.connect(droneGain);
+      droneOsc2.connect(droneGain);
+      droneGain.connect(audioCtx.destination);
+      droneOsc1.start();
+      droneOsc2.start();
+    }
+
+    function stopDrone() {
+      if (droneOsc1) { droneOsc1.stop(); droneOsc2.stop(); }
+    }
+
+    function loopMelody() {
+      if (!isMusicPlaying) return;
+      const note = fluteNotes[Math.floor(Math.random() * fluteNotes.length)];
+      playFluteNote(note, Math.random() * 2.5 + 2.5);
+      synthTimer = setTimeout(loopMelody, Math.random() * 1800 + 1200);
+    }
+
+    // --- MAIN ANIMATION LOOP ---
+    let lastTime = performance.now();
+    let globalTime = 0;
+    const FLOWER_RAIN_DURATION = 11.0;
+
+    function animate(currentTime) {
+      const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
+      lastTime = currentTime;
+      globalTime += delta;
+
+      // Clear Canvas
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      // ==========================================
+      // STAGE 1: START (BLACK SCREEN - 1.0s)
+      // ==========================================
+      if (currentState === STATE_START_BLACK) {
+        stateTimer += delta;
+
+        // Faint celestial stars anticipating divine reveal
+        for (const s of stars) {
+          s.phase += s.speed * 20;
+          const currentAlpha = (Math.sin(s.phase) * 0.25 + 0.35) * s.alpha;
+          ctx.fillStyle = `rgba(255, 235, 180, ${currentAlpha})`;
+          ctx.beginPath();
+          ctx.arc(s.x * baseWidth, s.y * baseHeight, s.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (stateTimer >= 1.0) {
+          currentState = STATE_DRAWING;
+          stateTimer = 0;
+        }
+
+        requestAnimationFrame(animate);
+        return;
+      }
+
+      // Draw Ambient Stars
+      for (const s of stars) {
+        s.phase += s.speed * 20;
+        const currentAlpha = (Math.sin(s.phase) * 0.35 + 0.65) * s.alpha;
+        ctx.fillStyle = `rgba(255, 235, 180, ${currentAlpha})`;
+        ctx.beginPath();
+        ctx.arc(s.x * baseWidth, s.y * baseHeight, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // =========================================================================
+      // STAGES 2 TO 12: PROGRESSIVE DRAWING (ACCELERATED FOR TEXT STAGE 12)
+      // =========================================================================
+      if (currentState === STATE_DRAWING) {
+        if (isPlaying) {
+          const curDot = dots[currentIndex];
+          // Significant speed boost when drawing Stage 12 ("HAPPY KRISHNA JANMASHTAMI")
+          const isTextStage = (curDot && curDot.stage === 12);
+          const speedMultiplier = isTextStage ? 4.8 : 1.0;
+          const dotsToAdd = Math.ceil(baseDotsPerFrame * speedMultiplier * playbackSpeed);
+          currentIndex = Math.min(totalDots, currentIndex + dotsToAdd);
+        }
+
+        // Draw placed dots
+        for (let i = 0; i < currentIndex; i++) {
+          drawDot(dots[i]);
+        }
+
+        // Glowing lead cursor
+        if (isPlaying && currentIndex > 0 && currentIndex < totalDots) {
+          const lead = dots[currentIndex - 1];
+          ctx.save();
+          ctx.shadowColor = '#ffd700';
+          ctx.shadowBlur = 18;
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(lead.x, lead.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // When all dots complete -> transition to 2-second hold
+        if (currentIndex >= totalDots) {
+          cacheCompletedKrishna();
+          currentState = STATE_HOLD_2S;
+          stateTimer = 0;
+        }
+      }
+
+      // ==========================================================
+      // TRANSITION: ANIMATION 100% COMPLETE -> HOLD FOR 2 SECONDS
+      // ==========================================================
+      else if (currentState === STATE_HOLD_2S) {
+        cacheCompletedKrishna();
+        ctx.drawImage(cachedKrishnaCanvas, 0, 0);
+
+        stateTimer += delta;
+
+        if (stateTimer >= 2.0) {
+          currentState = STATE_FLOWER_RAIN;
+          stateTimer = 0;
+
+          if (isMusicPlaying) {
+            playCelebrationChime();
+          }
+        }
+      }
+
+      // =========================================================================
+      // STAGE 13 & FINAL HOLD: FLOWER RAIN EFFECT & PERMANENT FRAME HOLD
+      // =========================================================================
+      else if (currentState === STATE_FLOWER_RAIN || currentState === STATE_FINAL_HOLD) {
+        cacheCompletedKrishna();
+
+        // Subtle living celestial aura on completed Lord Krishna
+        const auraBreath = Math.sin(globalTime * 1.5) * 0.03 + 0.98;
+        ctx.save();
+        ctx.globalAlpha = auraBreath;
+        ctx.drawImage(cachedKrishnaCanvas, 0, 0);
+        ctx.restore();
+
+        if (currentState === STATE_FLOWER_RAIN) {
+          stateTimer += delta;
+
+          // Once flower rain duration finishes -> hold final frame permanently (no loop, no repeat)
+          if (stateTimer >= FLOWER_RAIN_DURATION) {
+            currentState = STATE_FINAL_HOLD;
+          }
+        }
+
+        // A. Draw Hanging Fairy Light Curtains (Jhumar)
+        ctx.save();
+        for (const strand of HANGING_STRANDS) {
+          const beadSpacing = 14;
+          const numBeads = Math.floor(strand.length / beadSpacing);
+          for (let b = 0; b < numBeads; b++) {
+            const by = b * beadSpacing;
+            const twinkle = Math.sin(globalTime * 3 * strand.speed + b * 0.4) * 0.35 + 0.65;
+            const beadRad = (b === numBeads - 1) ? 2.8 : (b % 3 === 0 ? 2.0 : 1.4);
+            ctx.save();
+            ctx.shadowColor = strand.color;
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = strand.color;
+            ctx.globalAlpha = twinkle * 0.85;
+            ctx.beginPath();
+            ctx.arc(strand.x, by, beadRad, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+
+        // B. Update and Render Falling Flowers
+        if (currentState === STATE_FLOWER_RAIN) {
+          for (let i = fallingFlowers.length - 1; i >= 0; i--) {
+            const f = fallingFlowers[i];
+
+            if (!f.isFloating) {
+              f.swayAngle += f.swaySpeed;
+              f.x = f.baseX + Math.sin(f.swayAngle) * f.swayAmp;
+              f.y += f.speedY;
+              f.rotation += f.rotSpeed;
+
+              // Landing on water surface
+              if (f.y >= WATER_LEVEL + Math.sin(f.baseX * 0.05) * 8) {
+                f.isFloating = true;
+                f.floatY = f.y;
+
+                waterRipples.push({
+                  x: f.x,
+                  y: f.y,
+                  radius: 2,
+                  maxRadius: 28 + Math.random() * 20,
+                  alpha: 0.85,
+                  color: f.color
+                });
+
+                settledFlowers.push(f);
+                fallingFlowers.splice(i, 1);
+                continue;
+              }
+
+              if (f.y > baseHeight + 50) {
+                fallingFlowers[i] = spawnFlower();
+                continue;
+              }
+            }
+
+            ctx.save();
+            ctx.translate(f.x, f.y);
+            ctx.rotate(f.rotation);
+            ctx.scale(f.scale, f.scale);
+            ctx.globalAlpha = f.alpha;
+            const half = f.sprite.width / 2;
+            ctx.drawImage(f.sprite, -half, -half);
+            ctx.restore();
+          }
+        }
+
+        // C. Render Flowers Floating on Water Surface
+        for (const sf of settledFlowers) {
+          const bobbingY = sf.floatY + Math.sin(globalTime * 2.0 + sf.swayAngle) * 1.5;
+          ctx.save();
+          ctx.translate(sf.x, bobbingY);
+          ctx.rotate(sf.rotation);
+          ctx.scale(sf.scale, sf.scale);
+          ctx.globalAlpha = sf.alpha;
+          const half = sf.sprite.width / 2;
+          ctx.drawImage(sf.sprite, -half, -half);
+          ctx.restore();
+
+          // Water mirror reflection
+          ctx.save();
+          ctx.translate(sf.x, bobbingY + 12);
+          ctx.scale(sf.scale, -sf.scale * 0.42);
+          ctx.rotate(sf.rotation);
+          ctx.globalAlpha = sf.alpha * 0.28;
+          ctx.drawImage(sf.sprite, -half, -half);
+          ctx.restore();
+        }
+
+        // D. Water Surface Shimmer & Ripples
+        ctx.save();
+        const waterGrad = ctx.createLinearGradient(0, WATER_LEVEL - 10, 0, baseHeight);
+        waterGrad.addColorStop(0, 'rgba(3, 8, 20, 0.0)');
+        waterGrad.addColorStop(0.3, 'rgba(3, 8, 20, 0.45)');
+        waterGrad.addColorStop(1, 'rgba(2, 4, 10, 0.85)');
+        ctx.fillStyle = waterGrad;
+        ctx.fillRect(0, WATER_LEVEL - 10, baseWidth, baseHeight - WATER_LEVEL + 10);
+
+        for (let wy = WATER_LEVEL + 10; wy < baseHeight; wy += 12) {
+          const wavePhase = globalTime * 2 + wy * 0.15;
+          const waveAlpha = Math.sin(wavePhase) * 0.12 + 0.14;
+          ctx.strokeStyle = `rgba(100, 200, 255, ${waveAlpha})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(20, wy);
+          for (let wx = 20; wx < baseWidth - 20; wx += 40) {
+            const dy = Math.sin(wx * 0.03 + wavePhase) * 1.5;
+            ctx.lineTo(wx, wy + dy);
+          }
+          ctx.stroke();
+        }
+
+        for (let r = waterRipples.length - 1; r >= 0; r--) {
+          const rip = waterRipples[r];
+          rip.radius += 24 * delta;
+          rip.alpha -= 0.65 * delta;
+
+          if (rip.alpha <= 0 || rip.radius >= rip.maxRadius) {
+            waterRipples.splice(r, 1);
+          } else {
+            ctx.save();
+            ctx.shadowColor = rip.color;
+            ctx.shadowBlur = 8;
+            ctx.strokeStyle = rip.color;
+            ctx.globalAlpha = rip.alpha;
+            ctx.lineWidth = 1.3;
+            ctx.beginPath();
+            ctx.ellipse(rip.x, rip.y, rip.radius * 1.6, rip.radius * 0.35, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Mouse Sparkles
+      for (let i = sparkles.length - 1; i >= 0; i--) {
+        const p = sparkles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.025;
+        if (p.alpha <= 0) {
+          sparkles.splice(i, 1);
+        } else {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.beginPath();
+          ctx.arc(p.x * (window.devicePixelRatio || 1), p.y * (window.devicePixelRatio || 1), p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    requestAnimationFrame(animate);
+
+    // --- REPLAY & USER CONTROLS ---
+    function replayAnimation() {
+      currentState = STATE_START_BLACK;
+      stateTimer = 0;
+      currentIndex = 0;
+      isPlaying = true;
+      cachedKrishnaCanvas = null;
+      initFlowerPool();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        isPlaying = !isPlaying;
+      } else if (e.code === 'KeyR') {
+        replayAnimation();
+      } else if (e.code === 'KeyF') {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen();
+        } else {
+          document.exitFullscreen();
+        }
+      }
+    });
+
+    window.addEventListener('click', (e) => {
+      if (e.target.closest('.fullscreen-btn')) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const clickX = ((e.clientX - rect.left) / rect.width) * baseWidth;
+      const clickY = ((e.clientY - rect.top) / rect.height) * baseHeight;
+
+      if (currentState === STATE_FLOWER_RAIN || currentState === STATE_FINAL_HOLD) {
+        spawnFlowerBurst(clickX, clickY, 6);
+      } else {
+        isPlaying = !isPlaying;
+      }
+    });
+
+    fullscreenBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    });
+  </script>
+</body>
+</html>
